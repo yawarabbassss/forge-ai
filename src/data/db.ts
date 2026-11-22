@@ -12,6 +12,7 @@ export const initDb = async () => {
     driver: sqlite3.Database,
   });
 
+  // Create sessions table with proper schema (idempotent)
   await db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -19,6 +20,15 @@ export const initDb = async () => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  // Add title column if missing (migration for old databases)
+  try {
+    await db.run(`ALTER TABLE sessions ADD COLUMN title TEXT`);
+  } catch {}
+
+  // Create messages table with proper schema
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
@@ -30,7 +40,6 @@ export const initDb = async () => {
     );
   `);
 
-  // Seed existing in-memory sessions into SQLite
   _db = db;
   logger.info(`Database initialized at ${dbPath}`);
   return db;

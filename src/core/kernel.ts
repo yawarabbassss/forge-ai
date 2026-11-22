@@ -89,6 +89,7 @@ export class Kernel {
       this.policyEngine,
       this.pluginManager,
       session,
+      { bus: this.bus },
     );
 
     // Wire agent lifecycle events through the bus
