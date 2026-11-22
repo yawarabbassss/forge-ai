@@ -1,0 +1,25 @@
+{
+  "name": "forge",
+  "version": "0.1.0",
+  "description": "An extensible AI harness",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint .",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.10.0",
+    "typescript": "^5.6.0",
+    "vitest": "^5.1.1"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pino": "^9.4.0",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "zod": "^4.6.7"
+  }
+}
