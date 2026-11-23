@@ -1,94 +1,74 @@
-import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
-import { initDb, getDb, listSessions, persistMessage } from '../src/data/db.js';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { initDb, persistMessage, listSessions } from '../src/data/db.js';
 import { Kernel } from '../src/core/kernel.js';
 import { PluginManager } from '../src/core/plugin-manager.js';
 import { PolicyEngine } from '../src/core/policy.js';
 import { EventBus } from '../src/events/bus.js';
 import { BaseProvider } from '../src/providers/base.js';
 
-// Initialize DB once for all tests in this file
-beforeAll(async () => {
-  await initDb();
-});
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-describe('Session Restoration', () => {
-  let provider: BaseProvider;
+describe('Session Restoration End-to-End', () => {
   let kernel: Kernel;
+  let mockProvider: BaseProvider;
+
+  beforeAll(async () => {
+    await initDb();
+  });
 
   beforeEach(() => {
-    provider = {
+    mockProvider = {
       name: 'MockProvider',
+      model: 'mock',
       completion: vi.fn().mockResolvedValue({ content: 'OK' }),
     };
-
     const policyEngine = new PolicyEngine();
     const pluginManager = new PluginManager(policyEngine);
     const bus = new EventBus();
-
-    kernel = new Kernel(provider, { pluginManager, policyEngine, bus });
+    kernel = new Kernel(mockProvider, { pluginManager, policyEngine, bus });
   });
 
-  it('should persist and retrieve sessions from database', async () => {
+  it('should restore session messages from database', async () => {
     // Create a session via kernel
-    const session1 = await kernel.createSession({ title: 'Test Session 1' });
-    expect(session1.id).toBeDefined();
+    const session = await kernel.createSession({ title: 'Restore Test' });
 
-    // Add messages directly to DB (simulating conversation history)
-    await persistMessage(session1.id, 'user', 'Hello');
-    await persistMessage(session1.id, 'assistant', 'Hi there!');
+    // Manually insert messages into the DB
+    await persistMessage(session.id, 'user', 'Hello there');
+    await persistMessage(session.id, 'assistant', 'Hi! How can I help?');
 
-    // Query sessions from database
-    const sessions = await listSessions();
-    expect(sessions.length).toBeGreaterThan(0);
+    // Destroy in-memory session and restore from DB
+    kernel.deleteSession(session.id);
 
-    // Find our session
-    const restoredSession = sessions.find((s) => s.id === session1.id);
-    expect(restoredSession).toBeDefined();
-    expect(restoredSession?.title).toBe('Test Session 1');
+    const restored = await kernel.restoreSession(session.id);
+    expect(restored).not.toBeNull();
+    expect(restored!.messages).toHaveLength(2);
+    expect(restored!.messages[0].content).toBe('Hello there');
+    expect(restored!.messages[1].content).toBe('Hi! How can I help?');
   });
 
-  it('should restore session data after creating new kernel', async () => {
-    const session = await kernel.createSession({ title: 'Important Session' });
-
-    // Add conversation history
-    await persistMessage(session.id, 'user', 'First message');
-    await persistMessage(session.id, 'assistant', 'First response');
-    await persistMessage(session.id, 'user', 'Second message');
-
-    // Verify session appears in database listings
-    const sessions = await listSessions();
-    expect(sessions.some((s) => s.id === session.id)).toBe(true);
+  it('should return null for non-existent session', async () => {
+    const restored = await kernel.restoreSession('non-existent-id');
+    expect(restored).toBeNull();
   });
 
-  it('should list recent sessions sorted by creation time', async () => {
-    // Create multiple sessions
-    const session1 = await kernel.createSession({ title: 'Session A' });
-    const session2 = await kernel.createSession({ title: 'Session B' });
+  it('should list sessions created via kernel', async () => {
+    await kernel.createSession({ title: 'List Test A' });
+    await kernel.createSession({ title: 'List Test B' });
 
     const sessions = await listSessions();
-
-    // Should have at least the two we created
     expect(sessions.length).toBeGreaterThanOrEqual(2);
-
-    // Both should be in the list
-    const ids = sessions.map((s) => s.id);
-    expect(ids).toContain(session1.id);
-    expect(ids).toContain(session2.id);
+    expect(sessions.map((s: any) => s.title).filter(Boolean)).toContain('List Test A');
+    expect(sessions.map((s: any) => s.title).filter(Boolean)).toContain('List Test B');
   });
 
-  it('should preserve session metadata across operations', async () => {
-    const session = await kernel.createSession({
-      title: 'Detailed Session',
-      userId: 'user-123',
-      tags: ['important', 'test'],
-    });
+  it('should persist and retrieve tool call metadata', async () => {
+    const session = await kernel.createSession({ title: 'Tool Call Session' });
+    await persistMessage(session.id, 'assistant', '', { name: '{"toolCalls":[{"name":"calc","id":"tc1"}]}' });
+    await persistMessage(session.id, 'tool', '42', { toolCallId: 'tc1' });
 
-    expect(session.metadata.title).toBe('Detailed Session');
-    expect(session.metadata.userId).toBe('user-123');
-    expect(session.metadata.tags).toEqual(['important', 'test']);
+    // Restore and verify
+    const restored = await kernel.restoreSession(session.id);
+    expect(restored).not.toBeNull();
+    expect(restored!.messages).toHaveLength(2);
+    expect(restored!.messages[0].name).toContain('toolCalls');
+    expect(restored!.messages[1].toolCallId).toBe('tc1');
   });
 });

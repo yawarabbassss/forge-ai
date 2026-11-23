@@ -1,7 +1,11 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
+import { createRequire } from 'module';
 import { PluginManifest } from '../core/plugin.js';
 import { logger } from '../utils/logger.js';
+import { validateManifest } from './validation.js';
+
+const require = createRequire(import.meta.url);
 
 /** Represents a discovered plugin manifest location */
 export interface PluginDiscovery {
@@ -57,22 +61,28 @@ async function scanDirectory(
         if (existsSync(manifestPath) || existsSync(altManifestPath)) {
           const actualPath = existsSync(manifestPath) ? manifestPath : altManifestPath;
           try {
-            const content = await import(actualPath);
-            const manifest = typeof content === 'string' ? JSON.parse(content) : content.default || content;
+            // Use require() for synchronous JSON loading (ESM requires url:// on Windows)
+            const content = JSON.parse(readFileSync(actualPath, 'utf-8'));
+            const validationResult = validateManifest(content);
 
-            if (isValidManifest(manifest)) {
+            if (validationResult.valid) {
               const handlerPath = findHandler(fullPath);
               results.push({
-                id: manifest.id,
-                name: manifest.name,
-                version: manifest.version,
+                id: content.id,
+                name: content.name,
+                version: content.version,
                 path: fullPath,
-                manifest,
+                manifest: content as PluginManifest,
                 handlerPath,
               });
               logger.info(
-                { plugin: manifest.id, path: fullPath },
+                { plugin: content.id, path: fullPath },
                 'Discovered plugin',
+              );
+            } else {
+              logger.warn(
+                { path: actualPath, errors: validationResult.errors },
+                'Invalid plugin manifest',
               );
             }
           } catch (err) {
@@ -95,7 +105,7 @@ async function scanDirectory(
   }
 }
 
-/** Find handler .js file in plugin directory */
+/** Find handler .js file in plugin directory using dynamic import with file:// URL */
 function findHandler(dirPath: string): string | undefined {
   const entries = readdirSync(dirPath, { withFileTypes: true });
 

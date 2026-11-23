@@ -1,0 +1,57 @@
+{
+  "id": "hello-world",
+  "name": "Hello World Plugin",
+  "version": "1.0.0",
+  "description": "A simple example plugin that greets users and performs basic calculations",
+  "author": "Forge",
+  "tools": [
+    {
+      "name": "greet",
+      "description": "Greet a user by name with a friendly message",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the person to greet"
+          },
+          "formality": {
+            "type": "string",
+            "enum": ["casual", "formal"],
+            "description": "The formality level of the greeting"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "calculate",
+      "description": "Perform a basic arithmetic calculation (add, subtract, multiply, divide)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "number",
+            "description": "First number"
+          },
+          "b": {
+            "type": "number",
+            "description": "Second number"
+          },
+          "operation": {
+            "type": "string",
+            "enum": ["add", "subtract", "multiply", "divide"],
+            "description": "The operation to perform"
+          }
+        },
+        "required": ["a", "b", "operation"]
+      }
+    }
+  ],
+  "permissions": {
+    "fs": [],
+    "net": [],
+    "inference": []
+  },
+  "hooks": {}
+}

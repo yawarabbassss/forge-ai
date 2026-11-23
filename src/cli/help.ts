@@ -6,13 +6,17 @@ Commands (type at the ">>" prompt):
 
   <text>           Send a message to the agent
   /exit            Exit the CLI
+  /quit            Same as /exit
   /help            Show this help text
   /clear           Clear the conversation history for the current session
   /session new     Create a new chat session
   /session list    List active sessions
   /session switch  <id>  Switch to another session
   /plugin list     Show loaded plugins and their tools
+  /plugin reload   Reload all plugins from disk
   /status          Show current session and agent status
+  /provider        Show current provider configuration
+  /config          Show full configuration
 
 Examples:
   >> Hello, forge!
@@ -74,10 +78,19 @@ export function parseCommand(input: string): CommandResult | null {
       if (argument === 'list' || argument === 'l') {
         return { handled: true, command };
       }
+      if (argument === 'reload') {
+        return { handled: true, command, argument: 'reload' };
+      }
       return null;
 
     case 'status':
       return { handled: true, command };
+
+    case 'provider':
+      return { handled: true, command, argument };
+
+    case 'config':
+      return { handled: true, command, argument };
 
     default:
       return null;

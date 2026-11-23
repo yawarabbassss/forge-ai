@@ -1,18 +1,30 @@
-import { BaseProvider, ForgeRequest, ForgeResponse, ProviderConfig, ProviderConfigSchema } from './base.js';
+import { z } from 'zod';
+import { BaseProvider, ProviderConfig, ForgeRequest, ForgeResponse } from './base.js';
 import { logger } from '../utils/logger.js';
+
+const ToolCallSchema = z.object({
+  id: z.string(),
+  type: z.string().default('function'),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string(),
+  }),
+});
 
 export class OpenAICompatibleProvider implements BaseProvider {
   public readonly name: string;
-  protected config: ProviderConfig;
+  public readonly model: string;
+  private config: ProviderConfig;
 
   constructor(name = 'OpenAI-Compatible', config: ProviderConfig) {
     this.name = name;
-    this.config = ProviderConfigSchema.parse(config);
+    this.model = config.model;
+    this.config = config;
   }
 
   async completion(request: ForgeRequest): Promise<ForgeResponse> {
-    const baseUrl = this.config.baseUrl || 'https://api.openai.com/v1';
-    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const baseUrl = (this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const url = `${baseUrl}/chat/completions`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -48,45 +60,68 @@ export class OpenAICompatibleProvider implements BaseProvider {
       }));
     }
 
-    logger.debug({ provider: this.name, model: this.config.model, url }, 'Sending LLM completion request');
+    logger.debug(
+      { provider: this.name, model: this.config.model, url },
+      'Sending LLM completion request',
+    );
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(this.config.timeoutMs),
+        signal: this.config.timeoutMs ? AbortSignal.timeout(this.config.timeoutMs) : undefined,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error({ provider: this.name, status: response.status, errorText }, 'LLM Provider Request Failed');
-        throw new Error(`Provider ${this.name} request failed with status ${response.status}: ${errorText}`);
+        logger.error(
+          { provider: this.name, status: response.status },
+          'LLM Provider Request Failed',
+        );
+        throw new Error(
+          `Provider ${this.name} request failed with status ${response.status}: ${errorText}`,
+        );
       }
 
       const data = await response.json();
       return this.normalizeResponse(data);
-    } catch (err: any) {
-      logger.error({ provider: this.name, error: err.message }, 'Error in provider completion');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ provider: this.name, error: message }, 'Error in provider completion');
       throw err;
     }
   }
 
-  protected normalizeResponse(data: any): ForgeResponse {
-    const choice = data.choices?.[0];
-    const message = choice?.message || {};
+  protected normalizeResponse(data: unknown): ForgeResponse {
+    const choices = Array.isArray(data)
+      ? []
+      : ((data as any)?.choices || []);
+    const choice = choices[0] || {};
+    const message = choice.message || {};
 
-    const toolCalls = message.tool_calls?.map((tc: any) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: JSON.parse(tc.function.arguments || '{}'),
-    }));
+    const rawToolCalls = message.tool_calls || [];
+    const toolCalls: ForgeResponse['toolCalls'] = rawToolCalls.length > 0
+      ? rawToolCalls.map((tc: any) => {
+          let parsedArgs: Record<string, any> = {};
+          try {
+            parsedArgs = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+          } catch {
+            parsedArgs = {};
+          }
+          return {
+            id: tc.id,
+            name: tc.function?.name,
+            arguments: parsedArgs,
+          };
+        })
+      : undefined;
 
-    const usage = data.usage
+    const usage = (data as any)?.usage
       ? {
-          promptTokens: data.usage.prompt_tokens || 0,
-          completionTokens: data.usage.completion_tokens || 0,
-          totalTokens: data.usage.total_tokens || 0,
+          promptTokens: (data as any).usage.prompt_tokens || 0,
+          completionTokens: (data as any).usage.completion_tokens || 0,
+          totalTokens: (data as any).usage.total_tokens || 0,
         }
       : undefined;
 

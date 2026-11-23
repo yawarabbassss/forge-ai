@@ -4,7 +4,6 @@ import { PolicyEngine } from './policy.js';
 import { Session, SessionMetadata } from './session.js';
 import { Agent } from './agent.js';
 import { logger } from '../utils/logger.js';
-import { ToolDefinition } from './tools.js';
 import { EventBus } from '../events/bus.js';
 import { persistSession, persistMessage } from '../data/db.js';
 
@@ -15,14 +14,11 @@ export class Kernel {
   private bus: EventBus;
   private sessions: Map<string, Session> = new Map();
 
-  constructor(
-    provider: BaseProvider,
-    options?: {
-      pluginManager?: PluginManager;
-      policyEngine?: PolicyEngine;
-      bus?: EventBus;
-    },
-  ) {
+  constructor(provider: BaseProvider, options?: {
+    pluginManager?: PluginManager;
+    policyEngine?: PolicyEngine;
+    bus?: EventBus;
+  }) {
     this.provider = provider;
     this.pluginManager = options?.pluginManager || new PluginManager(new PolicyEngine());
     this.policyEngine = options?.policyEngine || new PolicyEngine();
@@ -37,11 +33,19 @@ export class Kernel {
     const sessionId = crypto.randomUUID();
     const session = new Session(sessionId, [], metadata);
     this.sessions.set(sessionId, session);
-    // Persist session if DB is available
     try { await persistSession(sessionId, metadata?.title); } catch {}
     await this.bus.emit('session:create', { sessionId, title: metadata?.title });
     logger.info({ id: sessionId }, 'Session created');
     return session;
+  }
+
+  /** Restore an existing session from database (re-populate in-memory state). */
+  async restoreSession(sessionId: string): Promise<Session | null> {
+    const restored = await Session.restoreFromDb(sessionId);
+    if (!restored) return null;
+    this.sessions.set(sessionId, restored);
+    logger.info({ sessionId }, 'Session restored into active kernel');
+    return restored;
   }
 
   deleteSession(id: string): boolean {
@@ -51,6 +55,10 @@ export class Kernel {
     this.sessions.delete(id);
     logger.info({ id }, 'Session deleted');
     return true;
+  }
+
+  getProvider(): BaseProvider {
+    return this.provider;
   }
 
   getPluginManager(): PluginManager {
@@ -82,8 +90,6 @@ export class Kernel {
       session = await this.createSession();
     }
 
-    const toolsMap = this.pluginManager.getTools();
-
     const agent = new Agent(
       this.provider,
       this.policyEngine,
@@ -92,7 +98,6 @@ export class Kernel {
       { bus: this.bus },
     );
 
-    // Wire agent lifecycle events through the bus
     await this.bus.emit('agent:start', { sessionId: session.id, prompt });
 
     try {

@@ -2,6 +2,7 @@
   "name": "forge",
   "version": "0.1.0",
   "description": "An extensible AI harness",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

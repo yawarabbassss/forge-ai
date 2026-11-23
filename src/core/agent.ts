@@ -60,8 +60,6 @@ export class Agent {
       throw new Error('Agent is already busy');
     }
 
-    // Only reset cancelled if not already set, so a pre-cancelled agent
-    // (e.g. cancelled before execute() is called) retains its state.
     if (!this.cancelled) {
       this.cancelled = false;
     }
@@ -105,15 +103,18 @@ export class Agent {
           messages.push({
             role: 'assistant',
             content: '',
-            name: JSON.stringify({ toolCalls: lastResponse.toolCalls }),
+            name: JSON.stringify({ toolCalls: lastResponse.toolCalls.map(tc => ({ name: tc.name, id: tc.id })) }),
           });
 
           for (let j = 0; j < results.length; j++) {
-            messages.push({
+            const toolCall = lastResponse.toolCalls[j];
+            const msg: any = {
               role: 'tool',
               content: JSON.stringify(results[j].result ?? results[j].error),
-              toolCallId: lastResponse.toolCalls[j].id,
-            });
+              toolCallId: toolCall?.id,
+            };
+            if (toolCall?.name) msg.name = toolCall.name;
+            messages.push(msg);
           }
 
           if (results.some((r) => r.error)) {
@@ -183,7 +184,6 @@ export class Agent {
       // Check permissions using the plugin manager's tool permissions
       const permissions = this.pluginManager.getToolPermissions(tc.name);
       if (permissions) {
-        // Collect all declared permissions for this tool's plugin
         const allPerms = [
           ...(permissions.fs || []),
           ...(permissions.net || []),
@@ -192,7 +192,6 @@ export class Agent {
           ...(Object.values(permissions.other || {}).flat() || []),
         ];
 
-        // If the plugin declares any permissions, enforce them
         if (allPerms.length > 0) {
           const permissionCheck = this.policyEngine.checkPermissions(toolRegistryKey, allPerms);
           if (!permissionCheck.allowed) {
@@ -203,8 +202,18 @@ export class Agent {
         }
       }
 
+      // Validate input against tool schema
+      let validatedArgs: Record<string, any> = {};
       try {
-        const result = await this.executeTool(tc.name, tc.arguments);
+        validatedArgs = this.pluginManager.validateToolInput(tc.name, tc.arguments || {});
+      } catch (validationErr) {
+        logger.warn({ tool: tc.name, error: validationErr instanceof Error ? validationErr.message : String(validationErr) }, 'Tool input validation failed');
+        results.push({ id: tc.id, error: `Input validation failed: ${validationErr instanceof Error ? validationErr.message : String(validationErr)}` });
+        continue;
+      }
+
+      try {
+        const result = await this.executeTool(tc.name, validatedArgs);
         await this.bus.emit('tool:result', {
           sessionId: this.session.id,
           toolName: tc.name,

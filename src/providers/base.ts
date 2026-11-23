@@ -1,15 +1,11 @@
-import { z } from 'zod';
-
-export const ProviderConfigSchema = z.object({
-  apiKey: z.string().optional(),
-  baseUrl: z.string().url().optional(),
-  model: z.string().min(1),
-  temperature: z.number().min(0).max(2).default(0.7),
-  maxTokens: z.number().positive().optional(),
-  timeoutMs: z.number().positive().default(60000),
-});
-
-export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
+export interface ProviderConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+}
 
 export interface FunctionToolDefinition {
   name: string;
@@ -52,5 +48,6 @@ export interface ForgeResponse {
 
 export interface BaseProvider {
   readonly name: string;
+  readonly model: string;
   completion(request: ForgeRequest): Promise<ForgeResponse>;
 }

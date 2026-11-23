@@ -69,9 +69,25 @@ export const persistMessage = async (
 ): Promise<void> => {
   const db = getDb();
   await db.run(
-    `INSERT INTO messages (session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, datetime('now'))`,
+    `INSERT INTO messages (session_id, role, content, metadata) VALUES (?, ?, ?, ?)`,
     [sessionId, role, content, metadata ? JSON.stringify(metadata) : null],
   );
+};
+
+/** Load all messages for a session from the database, ordered by creation. */
+export const loadSessionMessages = async (
+  sessionId: string,
+): Promise<Array<{ role: string; content: string | null; metadata?: Record<string, unknown> }>> => {
+  const db = getDb();
+  const rows = await db.all(
+    `SELECT role, content, metadata FROM messages WHERE session_id = ? ORDER BY rowid ASC`,
+    [sessionId],
+  );
+  return rows.map((row: any) => ({
+    role: row.role,
+    content: row.content,
+    metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+  }));
 };
 
 /** List recent sessions from the database. */
